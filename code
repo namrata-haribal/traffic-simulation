@@ -1,0 +1,207 @@
+import scipy as SP
+
+class TrafficSimulation:
+    def __init__(self, length, car_density, max_velocity, prob_slowdown, lanes):
+        '''
+        This initializes one object that simulates traffic. The following attributes capture the characteristics of the grid.
+        1) road_size = The length of the road.
+        2) traffic_density = The amount of vehicles on the road.
+        3) max_velocity = The maximum speed of vehicle.
+        4) prob_slowdown = Probability of vehicle decrementing its velocity.
+        '''
+        self.length = length
+        self.car_density = car_density
+        self.max_velocity = max_velocity
+        self.prob_slowdown = prob_slowdown
+        self.lanes = lanes
+        self.prob_rulebreak = prob_rulebreak
+
+        # Track the time steps and total number of cars that passed the simulation
+        # boundary to estimate average traffic flow.
+        self.time_step = 0.
+        self.cumulative_traffic_flow = 0.  
+
+    def initialize_lane(self):
+        '''
+        This method sets up a lane with cars based on the specified density.
+        Each car has a speed between 0 and 5. 
+        '''
+       
+        random_indexes = SP.random.choice(range(self.length),size=(self.lanes,int(round(self.car_density * self.length))))
+        self.state = -SP.ones((self.lanes, self.length), dtype=int)
+        for lane in range(self.lanes):
+            self.state[lane, random_indexes[lane]] = SP.random.randint(0, self.max_velocity + 1, size=int(round(self.car_density * self.length)))
+        return self.state
+
+    def lane_logistics(self):
+        '''
+        This method determines any vehicles that need to change lanes and updates
+        the positions of the cars that meet the four criteria, which are:
+        - the position a car wants to occupy in its current lane is full.
+        - the position in the lane adjacent to it is currenly empty.
+        - no car is approaching in the other lane.
+        - there is space in front of the spot the car wants to occupy.
+        
+        '''
+        for lane in range(self.lanes):
+            for position in range(self.length):
+                if self.state[lane][position] != -1:
+                    forward_self = 1
+                    while self.state[lane, (position + forward_self) % self.length] == -1:
+                        forward_self += 1
+                        if self.state[lane, position] >= forward_self:
+                            backward_other = 1
+                            forward_other = 1
+                            if self.state[lane - 1][position] == -1:
+                                while self.state[lane, (position - backward_other) % self.length] == -1:
+                                    backward_other += 1
+                                if backward_other < self.max_velocity:
+                                    while self.state[lane, (position + forward_other) % self.length] == -1:
+                                        forward_other += 1
+                                    if forward_other > self.state[lane][position]:
+                                        self.state[lane, position] = self.state[lane - 1, position]
+
+        return self.state
+
+
+
+    def update(self):
+        '''
+        This method calculates the immediate next positions of cars based on their current positions.
+        In cases where the simulation has more than 1 lane, the method calls the lane_logistics function to account for
+        any lane changes. Then, it applies the updates rules for acceleration & deceleration. The rules used are:
+        - if the distance between a car and the car in front of it is less than the velocity of the car & if the velocity
+            of the car is less than the maximum velocity, the car increases its speed by one.
+        - if the distance between a car and the car in front of it is more than the velocity of the car,
+            the car decreases its speed by one.
+        - if the velocity of car is greater than 0, then for some probability p, the car decreases its speed by one. 
+        
+        '''
+        if self.lanes > 1:
+            self.lane_logistics()
+        for lane in range(self.lanes):
+            for position in range(self.length):
+                if self.state[lane][position] != -1:
+                    forward_distance = 1
+                    while self.state[lane][(position + forward_distance) % self.length] == -1:
+                        forward_distance += 1
+
+                    # Acceleration  
+                    if self.state[lane][position] < self.max_velocity:
+                        self.state[lane][position] += 1
+                    #Decceleration
+                    if self.state[lane][position] >= forward_distance:
+                        self.state[lane][position] = forward_distance - 1
+
+                    # Randomization:
+                    if (self.state[lane][position] > 0) and (SP.random.uniform() < self.prob_slowdown):
+                        self.state[lane][position] -= 1
+
+        new_state = -SP.ones((self.lanes, self.length), dtype=int)
+        for lane in range(self.lanes):
+            for position in range(self.length):
+                if self.state[lane][position] != -1:
+                    new_state[lane, (position + self.state[lane][position]) % self.length] = self.state[lane][
+                        position]
+        self.state = new_state
+
+        # Update time and traffic flow:
+        self.time_step += 1
+
+        for i in range(self.max_velocity):
+            for j in range(self.lanes):
+                for k in range(self.length):
+                    if self.state[j][k] > i:
+                        self.cumulative_traffic_flow += 1
+
+
+    def display(self):
+        '''
+        This method displays traffic lanes. By displaying the state of the lane multiple times, one can observe
+        how a car moves through time. 
+        '''
+        for lane in range(self.lanes):
+            print(''.join('.' if x == -1 else str(x) for x in self.state[lane]))
+
+
+##############
+### ~TESTS~ ###
+##############
+'''
+These are tests written for anybody who wishes to know how to write the correct expressions to run the simulation.
+Please note that a common error for this code specifically would be running the simulation without calling the function
+object.initialize(lane). The self.state() attribute is defined under the lane initialization method and thus calling
+the simulation without the initialization will yield the error "state[lane][position]" as not found or not invalid. 
+'''
+
+
+one_lane = TrafficSimulation(100, 0.55, 5, 0.5, 1,0) #This is an example for the one lane model. 
+
+one_lane.initialize_lane()
+for i in range(5):
+    one_lane.update()
+    one_lane.display()
+
+two_lane = TrafficSimulation(100, 0.55, 5, 0.5, 2,0) #This is an example for the two lane model. 
+two_lane.initialize_lane()
+
+for i in range(20):
+    two_lane.update()
+    two_lane.display()
+
+
+
+########################
+### ~VISUALIZATIONS~ ###
+########################
+
+'''
+The following lines of code visualize traffic flow over time by running the simulation in range(numRuns)
+for different values of densities. The plots generated will show density on the x axis and flow rates on the y axis.
+'''
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+numRuns = 20
+densities = [.01*x for x in range(1,100)]
+print(densities)
+flow_rates = pd.DataFrame(index=range(numRuns),columns = densities)
+
+# Simulate higher traffic density to see traffic jams forming
+
+for density in densities:
+    temp_flows = np.zeros(numRuns)
+    for run in range(numRuns):
+        sim = TrafficSimulation(100, density, 5, 0.5, 1)
+        for i in range(20):
+            sim.initialize_lane()
+            sim.update()
+            sim.display()
+        temp_flows[run] = float(sim.cumulative_traffic_flow) / sim.time_step
+    flow_rates[density] = temp_flows
+print(flow_rates.head())
+print(flow_rates.describe())
+
+flow_metrics = flow_rates.describe()
+flow_means = flow_metrics.loc['mean'].values
+print("flow_means is",flow_means)
+flow_upper = flow_means + 1.96*flow_metrics.loc['std'].values
+print("flow upper is", flow_upper)
+flow_lower = flow_means - 1.96*flow_metrics.loc['std'].values
+print("flow lower is", flow_lower)
+
+plt.figure()
+for density in densities:
+    plt.scatter([density for i in range(numRuns)], flow_rates[density],c='b',edgecolor='b',alpha=.3)
+plt.plot(densities,flow_means,c='k',lw=3,label='mean')
+plt.plot(densities,flow_upper,c='r',label='95% confidence')
+plt.plot(densities,flow_lower,c='r')
+#plt.xlim(-.1,1.1)
+#plt.ylim(-.03,0.5)
+plt.xlabel('Density')
+plt.ylabel('Flow rate')
+#plt.legend()
+plt.show(
